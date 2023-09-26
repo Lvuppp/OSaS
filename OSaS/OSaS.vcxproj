@@ -129,6 +129,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="fileHandlers.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="globalVariables.h" />
     <ClInclude Include="main.h" />

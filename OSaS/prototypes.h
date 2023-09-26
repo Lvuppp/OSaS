@@ -28,3 +28,7 @@ void SwitchTab();
 void ReplaceCloseButton(int);
 
 void HighLightKeyWords();
+
+void OpenColorDialog();
+void ChangeFont();
+void ChangeFontColor();

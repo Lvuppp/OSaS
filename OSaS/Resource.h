@@ -15,6 +15,7 @@
 #define IDC_MYICON				2
 #ifndef IDC_STATIC
 #define IDC_STATIC				-1
+#define IDC_RICHEDIT			111
 #endif
 // Кастомные 
 
@@ -22,9 +23,11 @@
 #define OPEN_FILE_COMMAND			11 
 #define SAVE_FILE_COMMAND			12 
 #define CLOSE_FILE_COMMAND			13 
-#define CLOSE_TAB_COMMAND				14 
-
-
+#define CLOSE_TAB_COMMAND			14 
+#define CHANGE_BG_COLOR				15
+#define CHANGE_FONT					16
+#define HIGHTLIGHT_TEXT				17
+#define CHANGE_FONT_COLOR			18
 
 // Следующие стандартные значения для новых объектов
 //

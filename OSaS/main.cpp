@@ -3,10 +3,8 @@
 
 #include "framework.h"
 #include "prototypes.h"
-#include "tabHandlers.h"
 #include "fileHandlers.h"
 
-#include "commandsPrototypes.h"
 #include "globalVariables.h"
 #include "main.h"
 
@@ -45,8 +43,6 @@ int WINAPI wWinMain(HINSTANCE hInstance,
             DispatchMessage(&msg);
         }
     }
-    std::vector<char> v;
-    OpenFile("sdfsdfds", v);
     UnhookWindowsHookEx(hKeyboardHook);
 
     return (int)msg.wParam;
@@ -124,13 +120,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_COMMAND:
     {
         int wmId = LOWORD(wParam);
+        std::wstring messageNum = std::to_wstring(wmId);
+        OutputDebugString(messageNum.c_str());
         switch (wmId)
         {
-        case ENM_UPDATE:
-            HighLightKeyWords();
-            break;
         case IDM_EXIT:
             DestroyWindow(hWnd);
+            break;
+        case HIGHTLIGHT_TEXT:
+            HighLightKeyWords();
             break;
         case NEW_FILE_COMMAND:
             NewFileCommand();
@@ -147,6 +145,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case CLOSE_TAB_COMMAND:
             CloseFileCommand();
             break;
+        case CHANGE_BG_COLOR:
+            OpenColorDialog();
+            break;
+        case CHANGE_FONT:
+            ChangeFont();
+            break;
+        case CHANGE_FONT_COLOR:
+            ChangeFontColor();
         default:
             return DefWindowProc(hWnd, message, wParam, lParam);
         }
@@ -197,9 +203,6 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 
         if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
         {
-            if (GetAsyncKeyState(VK_SHIFT) & 0x7000) {
-
-            }
             switch (pKeyInfo->vkCode)
             {
             case 'S':
@@ -235,9 +238,10 @@ void WinWidgetsCreation(HWND hWnd) {
         MSFTEDIT_CLASS, L"",
         WS_BORDER | WS_CHILD | WS_VISIBLE | ES_MULTILINE | WS_VSCROLL | WS_TABSTOP,
         0, 0, 800, 600,
-        hWnd, NULL, hInst, NULL
+        hWnd, (HMENU)IDC_RICHEDIT, hInst, NULL
     );
-    UpdateWindow(editWidget);
+    SendMessage(editWidget, EM_SETEVENTMASK, 0, ENM_CHANGE);
+
 }
 
 
@@ -245,14 +249,20 @@ void WinMenuCreation(HWND hWnd) {
     HMENU fileMenu = CreateMenu();
     HMENU fileSettings = CreateMenu();
     HMENU fileSubMenu = CreateMenu();
+    HMENU settingsSubMenu = CreateMenu();
 
     AppendMenu(fileSubMenu, MF_STRING, NEW_FILE_COMMAND, L"New");
     AppendMenu(fileSubMenu, MF_STRING, OPEN_FILE_COMMAND, L"Open");
     AppendMenu(fileSubMenu, MF_STRING, SAVE_FILE_COMMAND, L"Save");
     AppendMenu(fileSubMenu, MF_STRING, CLOSE_FILE_COMMAND, L"Close");
 
+    AppendMenu(settingsSubMenu, MF_STRING, CHANGE_BG_COLOR, L"Bg");
+    AppendMenu(settingsSubMenu, MF_STRING, CHANGE_FONT, L"Font");
+    AppendMenu(settingsSubMenu, MF_STRING, CHANGE_FONT_COLOR, L"Font color");
+    AppendMenu(settingsSubMenu, MF_STRING, HIGHTLIGHT_TEXT, L"Highlight text");
+
     AppendMenu(fileMenu, MF_POPUP, (UINT_PTR)fileSubMenu, L"File");
-    AppendMenu(fileMenu, MF_STRING, NULL, L"Settings");
+    AppendMenu(fileMenu, MF_POPUP, (UINT_PTR)settingsSubMenu, L"Settings");
 
     SetMenu(hWnd, fileMenu);
 }
@@ -405,25 +415,55 @@ void ReplaceCloseButton(int currentTabIndex)
 
 void HighLightKeyWords()
 {
-    FINDTEXTEXW findText;
-    findText.chrg.cpMin = 0; 
-    findText.chrg.cpMax = -1; 
-    const wchar_t* wordToFind = L"class";
-    findText.lpstrText = wordToFind;
+    // Определите слова для подсветки и их цвета
+    const std::unordered_map<std::wstring, COLORREF> wordColors = {
+        { L"class", RGB(0, 255, 0) },
+        { L"struct", RGB(0, 255, 0) },
+        { L"static", RGB(0, 0, 255) },
+        { L"int", RGB(0, 0, 255) },
+        { L"float", RGB(0, 0, 255) },
+        { L"void", RGB(0, 0, 255) },
+        { L"string", RGB(0, 0, 255) },
+        { L"double", RGB(0, 0, 255) },
+        { L"static", RGB(0, 0, 255) },
+        { L"while", RGB(255, 0, 255) }, 
+        { L"if", RGB(255, 0, 255) } ,
+        { L"switch", RGB(255, 0, 255) } ,
+        { L"return", RGB(255, 0, 255) } ,
+    };
 
-    int wordLength = wcslen(wordToFind);
+    CHARFORMAT2 charFormat;
+    memset(&charFormat, 0, sizeof(CHARFORMAT2));
+    charFormat.cbSize = sizeof(CHARFORMAT2);
+    charFormat.dwMask = CFM_COLOR;
+    charFormat.crTextColor = RGB(0, 0, 0);
 
-    while (SendMessage(editWidget, EM_FINDTEXTEX, FR_DOWN | FR_MATCHCASE, reinterpret_cast<LPARAM>(&findText)) != -1) {
-        CHARFORMAT2 charFormat;
-        charFormat.cbSize = sizeof(CHARFORMAT2);
-        charFormat.dwMask = CFM_COLOR | CFM_UNDERLINE;
-        charFormat.crTextColor = RGB(0, 255, 0);
-        charFormat.dwEffects = CFE_UNDERLINE;
+    int textLength = GetWindowTextLength(editWidget);
+    std::wstring text(textLength + 1, L'\0');
+    GetWindowText(editWidget, &text[0], textLength + 1);
 
-        SendMessage(editWidget, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&charFormat));
 
-        findText.chrg.cpMin = findText.chrgText.cpMax;
+    for (auto& entry : wordColors)
+    {
+        FINDTEXTEXW findText;
+        findText.chrg.cpMin = 0;
         findText.chrg.cpMax = -1;
+        findText.lpstrText = entry.first.c_str();
+
+        while (SendMessage(editWidget, EM_FINDTEXTEX, FR_DOWN, (LPARAM)&findText) != -1)
+        {
+            CHARRANGE selRange;
+            selRange.cpMin = findText.chrgText.cpMin;
+            selRange.cpMax = findText.chrgText.cpMax;
+            SendMessage(editWidget, EM_EXSETSEL, 0, (LPARAM)&selRange);
+
+            charFormat.crTextColor = entry.second;
+            SendMessage(editWidget, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&charFormat);
+
+            findText.chrg.cpMin = findText.chrgText.cpMax;
+            findText.chrg.cpMax = -1;
+
+        }
     }
 }
 
@@ -486,4 +526,60 @@ void CreateTab(LPWSTR name, LPCWSTR data, LPWSTR path)
 
     ReplaceCloseButton(fileNames.size() - 1);
     TabCtrl_SetCurSel(tabControlWidget, fileNames.size() - 1);
+}
+
+void OpenColorDialog()
+{
+    CHOOSECOLOR cc = { sizeof(CHOOSECOLOR) };
+    static COLORREF custColors[16] = { 0 };
+    cc.rgbResult = RGB(255, 255, 255); 
+    cc.lpCustColors = custColors;
+    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+    if (ChooseColor(&cc))
+    {
+        SendMessage(editWidget, EM_SETBKGNDCOLOR, FALSE, cc.rgbResult);
+    }
+}
+void ChangeFont()
+{
+    CHARFORMAT2 cf;
+    cf.cbSize = sizeof(CHARFORMAT2);
+    CHOOSEFONT cfDialogParams = { 0 };
+    LOGFONT lf = { 0 };
+
+    cfDialogParams.lStructSize = sizeof(CHOOSEFONT);
+    cfDialogParams.hwndOwner = editWidget;
+    cfDialogParams.lpLogFont = &lf;
+    cfDialogParams.Flags = CF_INITTOLOGFONTSTRUCT | CF_EFFECTS | CF_SCREENFONTS;
+
+    if (ChooseFont(&cfDialogParams)) {
+        lstrcpy(cf.szFaceName, lf.lfFaceName);
+        cf.yHeight = lf.lfHeight * 20;
+        cf.dwEffects = 0;
+        cf.dwMask = CFM_FACE | CFM_SIZE;
+        SendMessage(editWidget, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cf);
+    }
+
+}
+
+
+void ChangeFontColor() {
+    CHOOSECOLOR cc = {0};
+    ZeroMemory(&cc, sizeof(cc));
+    cc.lStructSize = sizeof(cc);
+    cc.hwndOwner = editWidget;
+    cc.lpCustColors = new COLORREF[16]{ 0 };
+    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+
+    if (ChooseColor(&cc))
+    {
+        COLORREF chosenColor = cc.rgbResult;
+
+        CHARFORMAT2 cf = { };
+        cf.cbSize = sizeof(CHARFORMAT2);
+        cf.dwMask = CFM_COLOR;
+        cf.crTextColor = chosenColor;
+
+        SendMessage(editWidget, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&cf));
+    }
 }
