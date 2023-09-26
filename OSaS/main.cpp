@@ -415,12 +415,12 @@ void ReplaceCloseButton(int currentTabIndex)
 
 void HighLightKeyWords()
 {
-    // Определите слова для подсветки и их цвета
     const std::unordered_map<std::wstring, COLORREF> wordColors = {
         { L"class", RGB(0, 255, 0) },
         { L"struct", RGB(0, 255, 0) },
         { L"static", RGB(0, 0, 255) },
         { L"int", RGB(0, 0, 255) },
+        { L"auto", RGB(0, 0, 255) },
         { L"float", RGB(0, 0, 255) },
         { L"void", RGB(0, 0, 255) },
         { L"string", RGB(0, 0, 255) },
