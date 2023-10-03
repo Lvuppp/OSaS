@@ -17,6 +17,7 @@
 #include <tchar.h>
 #include <commdlg.h> 
 #include <commctrl.h> 
+#include <CommCtrl.h>
 
 #include <string>
 #include<vector>
@@ -26,3 +27,5 @@
 #include <iostream>
 #include <codecvt>
 #include <Richedit.h>
+#include <Shlobj.h>
+#include <ShellAPI.h>

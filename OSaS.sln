@@ -5,6 +5,12 @@ VisualStudioVersion = 17.6.33829.357
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OSaS", "OSaS\OSaS.vcxproj", "{3409BB52-C3E3-4FE7-9D72-98107CFC52D7}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Элементы решения", "Элементы решения", "{6ADFADBB-B0B2-42E7-9ED2-E523B514EBDA}"
+	ProjectSection(SolutionItems) = preProject
+		Отчёты\Lab1.docx = Отчёты\Lab1.docx
+		Отчёты\Lab2.docx = Отчёты\Lab2.docx
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64

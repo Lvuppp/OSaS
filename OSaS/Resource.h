@@ -16,6 +16,8 @@
 #ifndef IDC_STATIC
 #define IDC_STATIC				-1
 #define IDC_RICHEDIT			111
+#define IDC_TREEVIEW_EDIT		124
+#define IDC_TREEVIEW			125
 #endif
 // Кастомные 
 
@@ -28,6 +30,7 @@
 #define CHANGE_FONT					16
 #define HIGHTLIGHT_TEXT				17
 #define CHANGE_FONT_COLOR			18
+#define OPEN_FOLDER_COMMAND			19
 
 // Следующие стандартные значения для новых объектов
 //
