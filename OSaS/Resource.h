@@ -21,16 +21,22 @@
 #endif
 // Кастомные 
 
-#define NEW_FILE_COMMAND			10
-#define OPEN_FILE_COMMAND			11 
-#define SAVE_FILE_COMMAND			12 
-#define CLOSE_FILE_COMMAND			13 
-#define CLOSE_TAB_COMMAND			14 
-#define CHANGE_BG_COLOR				15
-#define CHANGE_FONT					16
-#define HIGHTLIGHT_TEXT				17
-#define CHANGE_FONT_COLOR			18
-#define OPEN_FOLDER_COMMAND			19
+#define NEW_FILE_COMMAND					10
+#define OPEN_FILE_COMMAND					11 
+#define SAVE_FILE_COMMAND					12 
+#define CLOSE_FILE_COMMAND					13 
+#define CLOSE_TAB_COMMAND					14 
+#define CHANGE_BG_COLOR						15
+#define CHANGE_FONT							16
+#define HIGHTLIGHT_TEXT						17
+#define CHANGE_FONT_COLOR					18
+#define OPEN_FOLDER_COMMAND					19
+#define OPEN_PROJECT_COMMAND				20
+#define COMPILE_PROJECT_COMMAND				21
+#define STOP_PROJECT_COMMAND				22
+#define CHANGE_BUILD_SETTINGS_COMMAND		23
+#define CHANGE_QMAKE_PATH_COMMAND			24
+#define CHANGE_MINGW_MAKE_PATH_COMMAND		25
 
 // Следующие стандартные значения для новых объектов
 //

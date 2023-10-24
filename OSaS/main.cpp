@@ -7,6 +7,8 @@
 
 #include "globalVariables.h"
 #include "main.h"
+#include <assert.h>
+
 int WINAPI wWinMain(HINSTANCE hInstance,
     HINSTANCE hPrevInstance,
     LPWSTR    lpCmdLine,
@@ -56,7 +58,7 @@ void MonitorDirectoryChanges() {
     );
 
     if (directoryHandle == INVALID_HANDLE_VALUE) {
-        std::cerr << "Failed to open directory: " << GetLastError() << std::endl;
+        OutputDebugString(L"Failed to open directory: " + GetLastError());
         return;
     }
 
@@ -80,7 +82,7 @@ void MonitorDirectoryChanges() {
         );
 
         if (!result) {
-            std::cerr << "ReadDirectoryChangesW failed: " << GetLastError() << std::endl;
+            OutputDebugString(L"ReadDirectoryChangesW failed: " + GetLastError());
             break;
         }
 
@@ -88,11 +90,11 @@ void MonitorDirectoryChanges() {
         DWORD waitResult = WaitForSingleObject(directoryHandle, INFINITE);
 
         if (waitResult == WAIT_OBJECT_0) {
-            std::wcout << L"Directory changed." << std::endl;
+            OutputDebugString(L"Directory changed.");
             // TODO: Handle the directory change as needed
         }
         else {
-            std::cerr << "WaitForSingleObject failed: " << GetLastError() << std::endl;
+            OutputDebugString(L"WaitForSingleObject failed: " + GetLastError());
             break;
         }
     }
@@ -123,7 +125,14 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     wcex.lpszClassName = szWindowClass;
     wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
-    return RegisterClassExW(&wcex);
+    WNDCLASSEXW wcBuildSettingsWindow{ sizeof(WNDCLASSEX) };
+
+    wcBuildSettingsWindow.lpfnWndProc = BuildSettingsProc;
+    wcBuildSettingsWindow.hInstance = hInstance;
+    wcBuildSettingsWindow.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(LTGRAY_BRUSH));
+    wcBuildSettingsWindow.lpszClassName = L"BuildSettingsWindowClass";
+    RegisterClassExW(&wcex);
+    return RegisterClassExW(&wcBuildSettingsWindow);
 }
 
 //
@@ -140,7 +149,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
     hInst = hInstance; // Сохранить маркер экземпляра в глобальной переменной
 
-     hMainWindow = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+    hMainWindow = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
 
     if (!hMainWindow)
@@ -150,6 +159,11 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     ShowWindow(hMainWindow, nCmdShow);
     UpdateWindow(hMainWindow);
+
+    if (сompileThread != NULL)
+    {
+        StopProjectCommand();
+    }
 
     return TRUE;
 }
@@ -210,6 +224,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case OPEN_FOLDER_COMMAND:
             OpenFolder(hWnd);
             break;
+        case OPEN_PROJECT_COMMAND:
+            OpenProject(hWnd);
+            break;
+        case COMPILE_PROJECT_COMMAND:
+            CompileProjectCommand();
+            break;
+        case STOP_PROJECT_COMMAND:
+            StopProjectCommand();
+            break;
+        case CHANGE_BUILD_SETTINGS_COMMAND:
+            OpenBuildSettingsCommand(hWnd);
+            break;
         default:
             return DefWindowProc(hWnd, message, wParam, lParam);
         }
@@ -235,13 +261,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         modifiedHeight = HIWORD(lParam);
 
         MoveWindow(tabControlWidget, 302, 1, modifiedWidth - 300, 30, TRUE);
-        MoveWindow(editWidget, 302, 31, modifiedWidth - 300, modifiedHeight, TRUE);
-        MoveWindow(treeView, 1, 31, 300, modifiedHeight, TRUE);
-
+        MoveWindow(editWidget, 302, 31, modifiedWidth - 300, modifiedHeight - 200, TRUE);
+        MoveWindow(treeView, 1, 31, 300, modifiedHeight - 200, TRUE);
+        MoveWindow(consoleWidget, 300, modifiedHeight - 170, modifiedWidth, 200, TRUE);
+        MoveWindow(resourcesGraphicWidget, 1, modifiedHeight - 170, 300, 200, TRUE);
         break;
     case WM_USER + 1:
         TreeView_DeleteAllItems(treeView);
         PopulateTreeViewWithFiles(treeView,TreeView_GetRoot(treeView), currentDirectory, 0 );
+        break;
+    case WM_USER + 2:
+        CloseHandle(сompileThread);
         break;
     case WM_PAINT:
     {
@@ -295,26 +325,27 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 void WinWidgetsCreation(HWND hWnd) {
     tabControlWidget = CreateWindowEx(0, WC_TABCONTROL, L"", WS_CHILD | WS_VISIBLE | TCS_FIXEDWIDTH,
         1, 0, 500, 30, hWnd, (HMENU)IDC_TABCTRL, GetModuleHandle(NULL), NULL);
+
     LoadLibrary(TEXT("Msftedit.dll"));
 
-    editWidget = CreateWindowEx(
-        0,
-        MSFTEDIT_CLASS, L"",
-        WS_BORDER | WS_CHILD | WS_VISIBLE | ES_MULTILINE | WS_VSCROLL | WS_TABSTOP,
-        302, 30, 400, 600,
-        hWnd, (HMENU)IDC_RICHEDIT, hInst, NULL
-    );
+    resourcesGraphicWidget = CreateWindowEx(0, L"static", NULL, WS_CHILD | WS_VISIBLE | WS_BORDER,
+        300, 0, 300, 200, hWnd, NULL, GetModuleHandle(NULL), NULL);
 
-    treeView = CreateWindowEx(
-        0,
-        WC_TREEVIEW,
-        L"",
-        WS_VISIBLE | WS_CHILD | WS_BORDER | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_HASLINES,
-        1, 30, 300, 600,
-        hWnd,
-        (HMENU)IDC_TREEVIEW,
-        hInst,
-        NULL); 
+    editWidget = CreateWindowEx(0, MSFTEDIT_CLASS, L"", WS_BORDER | WS_CHILD | WS_VISIBLE |
+        ES_MULTILINE | WS_VSCROLL | WS_TABSTOP, 302, 30, 400, 600, hWnd, (HMENU)IDC_RICHEDIT, hInst, NULL);
+
+    treeView = CreateWindowEx(0, WC_TREEVIEW, L"", WS_VISIBLE | WS_CHILD | WS_BORDER | TVS_HASBUTTONS | 
+        TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_HASLINES, 1, 30, 300, 600, hWnd, (HMENU)IDC_TREEVIEW,
+        hInst, NULL); 
+
+    compileButton = CreateWindowEx(0, L"button", L"Compile", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 70, 30, hWnd, (HMENU)COMPILE_PROJECT_COMMAND, hInst, NULL);
+
+    stopButton = CreateWindowEx(0, L"button", L"Stop", WS_CHILD | BS_PUSHBUTTON,
+        70, 0, 70, 30, hWnd, (HMENU)STOP_PROJECT_COMMAND, hInst, NULL);
+
+    consoleWidget = CreateWindowEx(0, L"edit", L"", WS_BORDER | WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+        300, 632, 400, 200, hWnd, NULL, hInst, NULL);
 
     wchar_t text[] = L"Root";
     TVITEM tvItem = { 0 };
@@ -327,15 +358,19 @@ void WinWidgetsCreation(HWND hWnd) {
     MonitorDirectoryChanges();
 
     SendMessage(editWidget, EM_SETEVENTMASK, 0, ENM_CHANGE);
+    int tabSizeInSpaces = 4;
+    SendMessage(editWidget, EM_SETTABSTOPS, 1, (LPARAM)&tabSizeInSpaces);
+
+    
 }
 
 void WinMenuCreation(HWND hWnd) {
     HMENU fileMenu = CreateMenu();
-    HMENU fileSettings = CreateMenu();
     HMENU fileSubMenu = CreateMenu();
     HMENU settingsSubMenu = CreateMenu();
+    HMENU comilerSettingsSubMenu = CreateMenu();
 
-    AppendMenu(fileSubMenu, MF_STRING, OPEN_FOLDER_COMMAND, L"Open folder");
+    AppendMenu(fileSubMenu, MF_STRING, OPEN_PROJECT_COMMAND, L"Open project");
     AppendMenu(fileSubMenu, MF_STRING, NEW_FILE_COMMAND, L"New File");
     AppendMenu(fileSubMenu, MF_STRING, OPEN_FILE_COMMAND, L"Open File");
     AppendMenu(fileSubMenu, MF_STRING, SAVE_FILE_COMMAND, L"Save File");
@@ -346,8 +381,11 @@ void WinMenuCreation(HWND hWnd) {
     AppendMenu(settingsSubMenu, MF_STRING, CHANGE_FONT_COLOR, L"Font color");
     AppendMenu(settingsSubMenu, MF_STRING, HIGHTLIGHT_TEXT, L"Highlight text");
 
+    AppendMenu(comilerSettingsSubMenu, MF_STRING, CHANGE_BUILD_SETTINGS_COMMAND, L"Set build params");
+
     AppendMenu(fileMenu, MF_POPUP, (UINT_PTR)fileSubMenu, L"File");
     AppendMenu(fileMenu, MF_POPUP, (UINT_PTR)settingsSubMenu, L"Settings");
+    AppendMenu(fileMenu, MF_POPUP, (UINT_PTR)comilerSettingsSubMenu, L"Build Settings");
 
     SetMenu(hWnd, fileMenu);
 }
@@ -374,10 +412,8 @@ void CloseFileCommand()
     filePathes.erase(name);
     fileData.erase(name);
     fileNames.erase(fileNames.begin() + tabIndex);
-
-    TabCtrl_DeleteItem(tabControlWidget, tabIndex);
-
     SwitchTab();
+    TabCtrl_DeleteItem(tabControlWidget, tabIndex);
 }
 
 void SaveFileCommand()
@@ -453,7 +489,7 @@ void OpenFileCommand()
     ZeroMemory(&ofn, sizeof(ofn));
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = NULL;
-    ofn.lpstrFilter = L"Text Files\0*.cpp;*.h\0";;
+    ofn.lpstrFilter = L"Text Files\0*.cpp;*.h\0";
     ofn.lpstrFile = szFileName;
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
@@ -566,7 +602,6 @@ void SwitchTab()
     SendMessage(editWidget, EM_REPLACESEL, TRUE, 
         reinterpret_cast<LPARAM>(fileData[fileNames[tabIndex]].c_str()));
 
-    ReplaceCloseButton(tabIndex);
 }
 
 void CreateTab(LPWSTR name, LPCWSTR data, LPWSTR path)
@@ -652,7 +687,7 @@ void ChangeFontColor() {
         cf.dwMask = CFM_COLOR;
         cf.crTextColor = chosenColor;
 
-        SendMessage(editWidget, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&cf));
+        SendMessage(editWidget, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)(&cf));
     }
 }
 
@@ -667,7 +702,7 @@ bool OpenFile(LPCWSTR path)
     DWORD dwHighFileSize;
     DWORD dwFileSize = GetFileSize(hFile, &dwHighFileSize);
     if (dwFileSize == INVALID_FILE_SIZE) {
-        std::cerr << "GetFileSize failed";
+        OutputDebugString(L"GetFileSize failed");
         CloseHandle(hFile);
         return false;
     }
@@ -724,8 +759,6 @@ bool SaveFile(LPWSTR path, LPCSTR data, int length)
         CloseHandle(hFile);
         return 1;
     }
-
-    // Ожидание завершения асинхронной операции
     SleepEx(INFINITE, TRUE);
 
     CloseHandle(overlapped.hEvent);
@@ -749,8 +782,6 @@ void OpenFolder(HWND hWnd)
         SHGetPathFromIDList(pidl, folderPath);
         currentDirectory = folderPath;
         PopulateTreeViewWithFiles(treeView, TreeView_GetRoot(treeView), folderPath, 0);
-
-        // Освобождаем память, выделенную для pidl
         CoTaskMemFree(pidl);
     }
 }
@@ -771,7 +802,6 @@ void PopulateTreeViewWithFiles(HWND hTreeView, HTREEITEM hParent, const std::wst
             if (wcscmp(findFileData.cFileName, L".") != 0 && wcscmp(findFileData.cFileName, L"..") != 0)
             {
                 TreeView_SetIndent(hTreeView, indent);
-                // Добавляем папку в TreeView
                 TVITEM tvItem = { 0 };
                 tvItem.mask = TVIF_TEXT | TVIF_CHILDREN | TVIF_PARAM;
                 tvItem.pszText = findFileData.cFileName;
@@ -807,14 +837,13 @@ void PopulateTreeViewWithFiles(HWND hTreeView, HTREEITEM hParent, const std::wst
 
 void CALLBACK WriteCompletionRoutine(DWORD dwErrorCode, DWORD dwNumberOfBytesTransfered, LPOVERLAPPED lpOverlapped)
 {
-    // Обработка завершения асинхронной операции записи
     if (dwErrorCode == 0)
     {
-        std::cout << "Асинхронная запись завершена. Байт записано: " << dwNumberOfBytesTransfered << std::endl;
+        OutputDebugString(L"Асинхронная запись завершена. Байт записано: " + dwNumberOfBytesTransfered);
     }
     else
     {
-        std::cerr << "Ошибка асинхронной записи: " << dwErrorCode << std::endl;
+        OutputDebugString(L"Ошибка асинхронной записи: " + dwErrorCode);
     }
 }
 
@@ -828,19 +857,476 @@ std::wstring GetPathRelativeToRoot(HWND hTreeView, HTREEITEM hItem)
     wchar_t itemName[256];
     item.pszText = itemName;
 
-    // Получаем имя текущего элемента
     if (TreeView_GetItem(hTreeView, &item)) {
         path = itemName;
     }
-
-    // Получаем родительский элемент
+    
     HTREEITEM hParent = TreeView_GetParent(hTreeView, hItem);
 
-    // Если у элемента есть родитель, рекурсивно добавляем его к пути
     if (hParent != nullptr) {
         std::wstring parentPath = GetPathRelativeToRoot(hTreeView, hParent);
         path = parentPath + L"\\" + path;
     }
 
     return path;
+}
+
+void OpenProject(HWND hWnd) {
+    OPENFILENAME ofn;
+    wchar_t szFileName[1024] = L"";
+
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFilter = L"Text Files\0*.pro\0";
+    ofn.lpstrFile = szFileName;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+    if (GetOpenFileName(&ofn) == TRUE)
+    {
+
+        TreeView_DeleteAllItems(treeView);
+
+        std::wstring path = szFileName;
+        std::wstring filePath, fileName;
+        size_t found = path.find_last_of(L"\\/");
+        if (found != std::string::npos) {
+            filePath = path.substr(0, found);
+            fileName = path.substr(found + 1, path.size() - 1);
+        }
+
+        PopulateTreeViewWithFiles(treeView, TreeView_GetRoot(treeView), filePath, 0);
+        currentDirectory = filePath;
+
+        currentProjectPath = path;
+
+        found = fileName.find_last_of(L".");
+        if (found != std::string::npos) {
+            fileName = fileName.substr(0, found);
+        }
+        
+        currentProjectName = fileName;
+    }
+}
+
+DWORD WINAPI CompileProject(LPVOID lpParam) {
+
+    STARTUPINFO startupInfo = { sizeof(STARTUPINFO) };
+
+    std::wstring directory(currentDirectory.begin(), currentDirectory.end());
+    directory += L"\\build";
+
+    WIN32_FIND_DATA findFileData;
+    HANDLE hFind = FindFirstFile(directory.c_str(), &findFileData);
+    
+    if (hFind == INVALID_HANDLE_VALUE)
+    {
+        CreateDirectoryW(directory.c_str(), NULL);
+    }
+    else
+    {
+        std::string directoryRemove(directory.begin(), directory.end());
+        directoryRemove = "rd /s /q " + directoryRemove;
+         
+        OutputDebugString(std::wstring(directoryRemove.begin(), directoryRemove.end()).c_str());
+        auto result = std::to_wstring(system(directoryRemove.c_str()));
+        result = L'\n' + result + L'\n';
+        SendMessage(consoleWidget, EM_SETSEL, (WPARAM)result.data(), (LPARAM)result.size() * sizeof(char));
+        SendMessage(consoleWidget, EM_REPLACESEL, 0, (LPARAM)result.data());
+        CreateDirectoryW(directory.c_str(), NULL);
+    }
+
+    FindClose(hFind);
+
+    directory = L" cd " + directory;
+    std::wstring qmake = GetHKeyPath(L"QMAKE");
+    if (qmake == L"")
+    {
+        OutputDebugStringW(L"Invalid qmake path");
+        return NULL;
+    }
+
+    std::wstring mingwMake = GetHKeyPath(L"MINGW_MAKE");
+
+    if (mingwMake == L"")
+    {
+        OutputDebugStringW(L"Invalid mingw-make path");
+        return NULL;
+    }
+
+    std::wstring complierQMake = directory + L" && " + qmake + L" ";
+    std::wstring params = L" -spec win32-g++ \"CONFIG+=debug\" \"CONFIG+=qml_debug\" && " + mingwMake;
+    std::wstring makeStrW = L" qmake && make | tee output.txt";
+    std::wstring compileStrW = complierQMake + currentProjectPath + params + makeStrW;
+    std::string compileStr(compileStrW.begin(), compileStrW.end());
+
+    OutputDebugString((compileStrW + L"\n").c_str());
+    auto resultCompilation = std::to_wstring(system(compileStr.c_str()));
+    resultCompilation = L'\n' + resultCompilation + L'\n';
+    SendMessage(consoleWidget, EM_SETSEL, (WPARAM)resultCompilation.c_str(), (LPARAM)resultCompilation.size() * sizeof(char));
+    SendMessage(consoleWidget, EM_REPLACESEL, 0, (LPARAM)resultCompilation.c_str());
+
+    ReadLogFile();
+
+    std::wstring exeStrW = currentDirectory + L"\\build\\debug\\" + currentProjectName + L".exe";
+    OutputDebugString((exeStrW + L"\n").c_str());
+
+    isProcessCreated = true;
+    
+
+    if (CreateProcess(NULL, const_cast<LPWSTR>(exeStrW.c_str()), NULL, NULL, FALSE, 0, NULL, NULL, &startupInfo, &processInfo)) {
+        WaitForSingleObject(processInfo.hProcess, INFINITE);
+        ShowWindow(stopButton, SW_HIDE);
+        CloseHandle(processInfo.hProcess);
+        CloseHandle(processInfo.hThread);
+
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(resourcesGraphicWidget, &ps);
+        ClearGraph(hdc);
+    }
+    else {
+        OutputDebugString(L"exe error: " + GetLastError());
+    }
+
+    PostMessage(hMainWindow, WM_USER + 2, 0, 0);
+
+    return 0;
+}
+
+DWORD WINAPI SaveFileThread(LPVOID param) {
+    SaveFileParams* params = reinterpret_cast<SaveFileParams*>(param);
+    SaveFile(params->filePath, params->fileContent, params->fileSize);
+    delete params;
+
+    return 0;
+}
+
+void CompileProjectCommand() {
+    if (currentProjectPath.empty()) {
+        return;
+    }
+
+    WIN32_FIND_DATA findFileData;
+    HANDLE hFind = FindFirstFile((currentDirectory + L"\\*").c_str(), &findFileData);
+
+    if (hFind == INVALID_HANDLE_VALUE) {
+        OutputDebugString(L"Failed to list files with error: " + GetLastError());
+        return;
+    }
+
+    std::vector<std::wstring> fileNames;
+
+    do {
+        if (findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+
+        fileNames.push_back(findFileData.cFileName);
+    } while (FindNextFile(hFind, &findFileData) != 0);
+
+    FindClose(hFind);
+    SaveFileCommand();
+
+    std::vector<HANDLE> threadHandles;
+
+    for (const std::wstring& fileName : fileNames) {
+        auto it = filePathes.find(fileName);
+
+        if (it != filePathes.end()) {
+            auto dataIt = fileData.find(fileName)->second;
+            int length = dataIt.size();
+
+            wchar_t* wcharPtr = new wchar_t[length + 1];
+            wcscpy_s(wcharPtr, length + 1, dataIt.c_str());
+
+            int bufferSize = WideCharToMultiByte(CP_ACP, 0, wcharPtr, -1, NULL, 0, NULL, NULL);
+            char* ansiStr = new char[bufferSize];
+            WideCharToMultiByte(CP_ACP, 0, wcharPtr, -1, ansiStr, bufferSize, NULL, NULL);
+
+            LPWSTR path = const_cast<LPWSTR>((*it).second.c_str());
+
+            SaveFileParams* params = new SaveFileParams{ path, ansiStr, length + 1 };
+
+            HANDLE hThread = CreateThread(NULL, 0, SaveFileThread, params, 0, NULL);
+            if (hThread == NULL) {
+                OutputDebugString(L"Failed to list files with error: " + GetLastError());
+            }
+            threadHandles.push_back(hThread);
+        }
+    }
+
+    WaitForMultipleObjects(threadHandles.size(), threadHandles.data(), TRUE, INFINITE);
+    isProcessCreated = false;
+    for (const auto& hThread : threadHandles) {
+        CloseHandle(hThread);
+    }
+    
+    if (сompileThread != NULL)
+    {
+        StopProjectCommand();
+    }
+
+    сompileThread = CreateThread(NULL, 0, CompileProject, NULL, 0, NULL);
+    if (сompileThread == NULL) {
+        OutputDebugString(L"Failed to create thread for compilation. Error code: " + GetLastError());
+        return;
+    }
+
+
+    graphicThread = CreateThread(NULL, 0, UpdateAndDraw, (LPVOID)resourcesGraphicWidget, 0, NULL);
+    if (graphicThread == NULL) {
+        OutputDebugString(L"Failed to create thread for compilation. Error code: " + GetLastError());
+        return;
+    }
+
+    SetPriorityClass(сompileThread, THREAD_PRIORITY_TIME_CRITICAL);
+    
+    ShowWindow(stopButton, SW_SHOW);
+}
+
+void ReadLogFile() {
+    HANDLE hFile = CreateFileW((currentDirectory + L"\\build\\output.txt").c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+    if (hFile != INVALID_HANDLE_VALUE) {
+        DWORD fileSize = GetFileSize(hFile, NULL);
+
+        if (fileSize == INVALID_FILE_SIZE && GetLastError() != NO_ERROR) {
+            CloseHandle(hFile);
+            return;
+        }
+
+        content.resize(fileSize + 1);
+        DWORD bytesRead;
+
+        if (ReadFile(hFile, content.data(), fileSize, &bytesRead, NULL)) {
+            SetWindowTextA(consoleWidget, content.data());
+        }
+        else {
+            return;
+        }
+        CloseHandle(hFile);
+        return;
+    }
+    else {
+        return ;
+    }
+}
+
+void StopProjectCommand() {
+    TerminateThread(сompileThread, 0);
+    if (isProcessCreated) {
+        TerminateProcess(processInfo.hProcess, 0);
+        TerminateThread(processInfo.hThread, 0);
+        TerminateThread(graphicThread, 0);
+    }
+    PAINTSTRUCT ps;
+    HDC hdc = BeginPaint(resourcesGraphicWidget, &ps);
+    ClearGraph(hdc);
+    ShowWindow(stopButton, SW_HIDE);
+}
+
+void ClearGraph(HDC hdc)
+{
+    RECT rect;
+    GetClientRect(resourcesGraphicWidget, &rect);
+    HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 255));
+    FillRect(hdc, &rect, hBrush);
+
+}
+
+void DrawGraph(HDC hdc, int memoryUsage)
+{
+    int height = 200 - memoryUsage;
+    if (height < 5)
+    {
+        graphicScale++;
+        return;
+    }
+    Rectangle(hdc, 50, 150, 100, height);
+    RECT rect = { 50, 150, 100, height };
+    HBRUSH hBrush = CreateSolidBrush(RGB(0, 0, 70));
+    FillRect(hdc, &rect, hBrush);
+}
+
+DWORD WINAPI UpdateAndDraw(LPVOID lpParam)
+{
+    HWND hWnd = (HWND)lpParam;
+    while (true)
+    {
+        PROCESS_MEMORY_COUNTERS_EX pmc;
+
+        if (processInfo.hProcess != NULL && GetProcessMemoryInfo(processInfo.hProcess, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc)))
+        {
+            HDC hdc = GetDC(hWnd);
+            ClearGraph(hdc);
+            DrawAxes(hdc, 200, 200, 50, 50, 1024 * 10 * graphicScale);
+
+            if (200 - (pmc.WorkingSetSize / (1024 * 10 * graphicScale)) < 5)
+            {
+                graphicScale++;
+                continue;
+            }
+
+            DrawGraph(hdc, pmc.WorkingSetSize / (1024 * 10 * graphicScale));
+            ReleaseDC(hWnd, hdc);
+        }
+
+        Sleep(100);
+    }
+}
+
+void DrawAxes(HDC hdc, int width, int height, int maxX, int maxY, int axesMaxValue) {
+    MoveToEx(hdc, 25, 150, nullptr);
+    LineTo(hdc, 25, 5);
+
+    MoveToEx(hdc, 25, 150, nullptr);
+    LineTo(hdc, 150, 150);
+
+    int stepY = 150 / 5;
+    int axesValue = axesMaxValue / 5;
+
+    for (int i = 150; i >= 0; i -= stepY, axesValue += axesMaxValue / 5) {
+        MoveToEx(hdc, 22, i, nullptr);
+        LineTo(hdc, 28, i);
+        std::wstring label = std::to_wstring(axesValue);
+        TextOut(hdc, 0, i, label.c_str(), label.length());
+    }
+}
+
+std::wstring GetHKeyPath(const wchar_t* valueName) {
+    HKEY hKey;
+    const wchar_t* subkey = L"Software\\IDETools";
+    DWORD valueType;
+    wchar_t data[MAX_PATH];
+
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, subkey, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        DWORD dataSize = MAX_PATH * sizeof(wchar_t);
+
+        if (RegQueryValueEx(hKey, valueName, NULL, &valueType, (LPBYTE)data, &dataSize) == ERROR_SUCCESS) {
+            if (valueType == REG_SZ) {
+                return data;
+            }
+        }
+
+        RegCloseKey(hKey); 
+    }
+
+    return L""; 
+}
+
+void SetHKeyPath(const wchar_t* valueName, const wchar_t* valueData)
+{
+    HKEY hKey;
+    const wchar_t* subkey = L"Software\\IDETools";
+    LONG result = RegCreateKeyEx(HKEY_CURRENT_USER, subkey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL);
+
+    if (result == ERROR_SUCCESS) {
+        result = RegSetValueEx(hKey, valueName, 0, REG_SZ, (const BYTE*)valueData, (wcslen(valueData) + 1) * sizeof(wchar_t));
+        RegCloseKey(hKey);
+
+        if (result == ERROR_SUCCESS) {
+            OutputDebugString(L"Success");
+        }
+        else {
+            OutputDebugString(L"Error set value to register.");
+        }
+    }
+    else {
+        OutputDebugString(L"Creating error" );
+    }
+}
+
+void SetQMakePathCommand()
+{
+    OPENFILENAME ofn;
+    wchar_t szFileName[1024] = L"";
+
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFilter = L"All Files\0*.*\0";;
+    ofn.lpstrFile = szFileName;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+    if (GetOpenFileName(&ofn) == TRUE)
+    {
+        SetHKeyPath(L"QMAKE", szFileName);
+        SetWindowTextW(qmakePath, GetHKeyPath(L"QMAKE").c_str());
+    }
+}
+
+void SetMingwMakePathCommand()
+{
+    OPENFILENAME ofn;
+    wchar_t szFileName[1024] = L"";
+
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFilter = L"All Files\0*.*\0";;
+    ofn.lpstrFile = szFileName;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+    if (GetOpenFileName(&ofn) == TRUE)
+    {
+        SetHKeyPath(L"MINGW_MAKE", szFileName);
+        SetWindowTextW(mingwMakePath, GetHKeyPath(L"MINGW_MAKE").c_str());
+    }
+}
+
+void OpenBuildSettingsCommand(HWND hWnd)
+{
+    hwndBuildSettings = CreateWindow(L"BuildSettingsWindowClass", L"Build Settings Window", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 600, 400, nullptr, nullptr, nullptr, nullptr);
+
+    HWND qmakePathLable = CreateWindow(L"static", L"qmake:", WS_VISIBLE | WS_CHILD | SS_NOTIFY, 
+        10, 50, 100, 20, hwndBuildSettings, NULL, NULL, NULL);
+    HWND mingwMakePathLable = CreateWindow(L"static", L"mingw_make", WS_VISIBLE | WS_CHILD | SS_NOTIFY,
+        10, 100, 100, 20, hwndBuildSettings, NULL, NULL, NULL);
+
+    qmakePath = CreateWindow(L"static", GetHKeyPath(L"QMAKE").c_str(), WS_VISIBLE | WS_CHILD | SS_NOTIFY,
+        100, 50, 250, 20, hwndBuildSettings, NULL, NULL, NULL);
+    mingwMakePath = CreateWindow(L"static", GetHKeyPath(L"MINGW_MAKE").c_str(), WS_VISIBLE | WS_CHILD | SS_NOTIFY,
+        100, 100, 250, 20, hwndBuildSettings, NULL, NULL, NULL);
+
+    HWND changeQMakePath = CreateWindow(L"button", L"Change path", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        360, 50, 100, 20, hwndBuildSettings, (HMENU)CHANGE_QMAKE_PATH_COMMAND, GetModuleHandle(nullptr), NULL);
+    HWND changeMingwMakePath = CreateWindow(L"button", L"Change path", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        360, 100, 100, 20, hwndBuildSettings, (HMENU)CHANGE_MINGW_MAKE_PATH_COMMAND, GetModuleHandle(nullptr), NULL);
+
+    ShowWindow(hwndBuildSettings, SW_SHOWNORMAL);
+}
+
+LRESULT CALLBACK BuildSettingsProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    {
+    case WM_COMMAND:
+        switch (LOWORD(wParam))
+        {
+        case CHANGE_QMAKE_PATH_COMMAND:
+            SetQMakePathCommand();
+            break;
+        case CHANGE_MINGW_MAKE_PATH_COMMAND:
+            SetMingwMakePathCommand();
+            break;
+        case WM_CLOSE:
+            if (hWnd == hwndBuildSettings)
+                DestroyWindow(hWnd);
+            break;
+        }
+        break;
+
+    case WM_DESTROY:
+        if (hWnd == hwndBuildSettings)
+            hwndBuildSettings = nullptr;
+        break;
+
+    default:
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
 }

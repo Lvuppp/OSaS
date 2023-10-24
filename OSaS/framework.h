@@ -29,3 +29,4 @@
 #include <Richedit.h>
 #include <Shlobj.h>
 #include <ShellAPI.h>
+#include <psapi.h>

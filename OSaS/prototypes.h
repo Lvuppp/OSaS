@@ -6,9 +6,12 @@
 ATOM                MyRegisterClass(HINSTANCE );
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
-INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    BuildSettingsProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK	KeyboardProc(int, WPARAM, LPARAM );
 DWORD WINAPI		WatchDirectoryThread(LPVOID lpParam);
+DWORD WINAPI		CompileProject(LPVOID lpParam);
+DWORD WINAPI		SaveFileThread(LPVOID param);
 
 void CALLBACK FileProcessing(DWORD dwErrorCode, DWORD dwNumberOfBytesTransfered, LPOVERLAPPED lpOverlapped);
 void WinMenuCreation(HWND);
@@ -21,9 +24,13 @@ void NewFileCommand();
 void OpenFileCommand();
 void CloseFileCommand();
 void SaveFileCommand();
+void CompileProjectCommand();
+void StopProjectCommand();
 
 void OpenFolder(HWND hWnd);
-
+void OpenProject(HWND hWnd); 
+void ReadLogFile();
+void ClearGraph(HDC hdc);
 void CreateTab(LPWSTR, LPCWSTR, LPWSTR);
 void SwitchTab();
 void ReplaceCloseButton(int);
@@ -37,3 +44,20 @@ void PopulateTreeViewWithFiles(HWND , HTREEITEM , const std::wstring& , const in
 void CALLBACK WriteCompletionRoutine(DWORD , DWORD , LPOVERLAPPED );
 
 std::wstring GetPathRelativeToRoot(HWND , HTREEITEM );
+
+DWORD WINAPI UpdateAndDraw(LPVOID lpParam);
+void DrawGraph(HDC hdc, int memoryUsage);
+void DrawAxes(HDC hdc, int width, int height, int maxX, int maxY, int axesMaxValue);
+
+struct SaveFileParams {
+    LPWSTR filePath;
+    LPCSTR fileContent;
+    int fileSize;
+};
+
+std::wstring GetHKeyPath(const wchar_t* valueName);
+void SetHKeyPath(const wchar_t* valueName, const wchar_t* valueData);
+void SetQMakePathCommand();
+void SetMingwMakePathCommand();
+
+void OpenBuildSettingsCommand(HWND);
