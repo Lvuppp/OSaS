@@ -9,6 +9,7 @@ LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    BuildSettingsProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK	KeyboardProc(int, WPARAM, LPARAM );
+LRESULT CALLBACK    ChatProc(HWND, UINT, WPARAM, LPARAM);
 DWORD WINAPI		WatchDirectoryThread(LPVOID lpParam);
 DWORD WINAPI		CompileProject(LPVOID lpParam);
 DWORD WINAPI		SaveFileThread(LPVOID param);
@@ -24,7 +25,7 @@ void NewFileCommand();
 void OpenFileCommand();
 void CloseFileCommand();
 void SaveFileCommand();
-void CompileProjectCommand();
+DWORD WINAPI CompileProjectCommand(LPVOID param);
 void StopProjectCommand();
 
 void OpenFolder(HWND hWnd);
@@ -61,3 +62,20 @@ void SetQMakePathCommand();
 void SetMingwMakePathCommand();
 
 void OpenBuildSettingsCommand(HWND);
+void OpenChatCommand(HWND);
+
+enum class Operation
+{
+    SendFile,
+    UpdateReceviers,
+    CloseHandle,
+};
+
+
+struct Package {
+    Operation operation;
+    int data = -1;
+    int receiverId = -1;
+};
+
+void ProcessChatThread();

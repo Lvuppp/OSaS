@@ -8,6 +8,7 @@
 #include "globalVariables.h"
 #include "main.h"
 #include <assert.h>
+#pragma comment(lib, "ws2_32.lib")
 
 int WINAPI wWinMain(HINSTANCE hInstance,
     HINSTANCE hPrevInstance,
@@ -16,7 +17,7 @@ int WINAPI wWinMain(HINSTANCE hInstance,
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
-
+    g_mutex = CreateMutex(NULL, FALSE, L"Mutex");
     // Инициализация глобальных строк
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_OSAS, szWindowClass, MAX_LOADSTRING);
@@ -27,12 +28,10 @@ int WINAPI wWinMain(HINSTANCE hInstance,
     {
         return FALSE;
     }
-
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_OSAS));
     hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, hInstance, 0);
 
     MSG msg;
-
     // Цикл основного сообщения:
     while (GetMessage(&msg, nullptr, 0, 0))
     {
@@ -43,9 +42,10 @@ int WINAPI wWinMain(HINSTANCE hInstance,
         }
     }
     UnhookWindowsHookEx(hKeyboardHook);
-
+    closesocket(clientSocket);
     return (int)msg.wParam;
 }
+
 void MonitorDirectoryChanges() {
     HANDLE directoryHandle = CreateFileW(
         currentDirectory.c_str(),
@@ -132,6 +132,15 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     wcBuildSettingsWindow.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(LTGRAY_BRUSH));
     wcBuildSettingsWindow.lpszClassName = L"BuildSettingsWindowClass";
     RegisterClassExW(&wcex);
+
+    WNDCLASSEXW wcChatWindow{ sizeof(WNDCLASSEX) };
+
+    wcChatWindow.lpfnWndProc = ChatProc;
+    wcChatWindow.hInstance = hInstance;
+    wcChatWindow.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(LTGRAY_BRUSH));
+    wcChatWindow.lpszClassName = L"ChatWindowClass";
+    RegisterClassExW(&wcChatWindow);
+
     return RegisterClassExW(&wcBuildSettingsWindow);
 }
 
@@ -198,8 +207,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
             break;
         case NEW_FILE_COMMAND:
+        {
             NewFileCommand();
             break;
+        }
         case OPEN_FILE_COMMAND:
             OpenFileCommand();
             break;
@@ -228,13 +239,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             OpenProject(hWnd);
             break;
         case COMPILE_PROJECT_COMMAND:
-            CompileProjectCommand();
+            CreateThread(NULL, 0, CompileProjectCommand, NULL, 0, NULL);
             break;
         case STOP_PROJECT_COMMAND:
             StopProjectCommand();
             break;
         case CHANGE_BUILD_SETTINGS_COMMAND:
             OpenBuildSettingsCommand(hWnd);
+            break;
+        case OPEN_CHAT:
+            OpenChatCommand(hWnd);
             break;
         default:
             return DefWindowProc(hWnd, message, wParam, lParam);
@@ -360,7 +374,6 @@ void WinWidgetsCreation(HWND hWnd) {
     SendMessage(editWidget, EM_SETEVENTMASK, 0, ENM_CHANGE);
     int tabSizeInSpaces = 4;
     SendMessage(editWidget, EM_SETTABSTOPS, 1, (LPARAM)&tabSizeInSpaces);
-
     
 }
 
@@ -369,6 +382,7 @@ void WinMenuCreation(HWND hWnd) {
     HMENU fileSubMenu = CreateMenu();
     HMENU settingsSubMenu = CreateMenu();
     HMENU comilerSettingsSubMenu = CreateMenu();
+    HMENU chatSubMenu = CreateMenu();
 
     AppendMenu(fileSubMenu, MF_STRING, OPEN_PROJECT_COMMAND, L"Open project");
     AppendMenu(fileSubMenu, MF_STRING, NEW_FILE_COMMAND, L"New File");
@@ -386,6 +400,7 @@ void WinMenuCreation(HWND hWnd) {
     AppendMenu(fileMenu, MF_POPUP, (UINT_PTR)fileSubMenu, L"File");
     AppendMenu(fileMenu, MF_POPUP, (UINT_PTR)settingsSubMenu, L"Settings");
     AppendMenu(fileMenu, MF_POPUP, (UINT_PTR)comilerSettingsSubMenu, L"Build Settings");
+    AppendMenu(fileMenu, MF_STRING, OPEN_CHAT, L"Chat");
 
     SetMenu(hWnd, fileMenu);
 }
@@ -752,6 +767,9 @@ bool SaveFile(LPWSTR path, LPCSTR data, int length)
 
     OVERLAPPED overlapped = { 0 };
     overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    CRITICAL_SECTION cs;
+    InitializeCriticalSection(&cs);
+    EnterCriticalSection(&cs); 
 
     if (!WriteFileEx(hFile, data, length, &overlapped, WriteCompletionRoutine))
     {
@@ -759,7 +777,11 @@ bool SaveFile(LPWSTR path, LPCSTR data, int length)
         CloseHandle(hFile);
         return 1;
     }
+
     SleepEx(INFINITE, TRUE);
+
+    LeaveCriticalSection(&cs); 
+    DeleteCriticalSection(&cs);
 
     CloseHandle(overlapped.hEvent);
     CloseHandle(hFile);
@@ -955,9 +977,9 @@ DWORD WINAPI CompileProject(LPVOID lpParam) {
         return NULL;
     }
 
+    WaitForSingleObject(g_mutex, INFINITE);
     std::wstring complierQMake = directory + L" && " + qmake + L" ";
-    std::wstring params = L" -spec win32-g++ \"CONFIG+=debug\" \"CONFIG+=qml_debug\" && " + mingwMake;
-    std::wstring makeStrW = L" qmake && make | tee output.txt";
+    params += mingwMake;
     std::wstring compileStrW = complierQMake + currentProjectPath + params + makeStrW;
     std::string compileStr(compileStrW.begin(), compileStrW.end());
 
@@ -970,6 +992,7 @@ DWORD WINAPI CompileProject(LPVOID lpParam) {
     ReadLogFile();
 
     std::wstring exeStrW = currentDirectory + L"\\build\\debug\\" + currentProjectName + L".exe";
+
     OutputDebugString((exeStrW + L"\n").c_str());
 
     isProcessCreated = true;
@@ -989,22 +1012,25 @@ DWORD WINAPI CompileProject(LPVOID lpParam) {
         OutputDebugString(L"exe error: " + GetLastError());
     }
 
-    PostMessage(hMainWindow, WM_USER + 2, 0, 0);
+    ReleaseMutex(g_mutex);
 
+    PostMessage(hMainWindow, WM_USER + 2, 0, 0);
     return 0;
 }
-
+HANDLE hSemaphore = CreateSemaphore(NULL, 2, 2, L"MySemaphore");
 DWORD WINAPI SaveFileThread(LPVOID param) {
     SaveFileParams* params = reinterpret_cast<SaveFileParams*>(param);
+    WaitForSingleObject(hSemaphore, INFINITE);
     SaveFile(params->filePath, params->fileContent, params->fileSize);
+    ReleaseSemaphore(hSemaphore, 1, NULL);
     delete params;
 
     return 0;
 }
 
-void CompileProjectCommand() {
+DWORD WINAPI CompileProjectCommand(LPVOID param) {
     if (currentProjectPath.empty()) {
-        return;
+        return NULL;
     }
 
     WIN32_FIND_DATA findFileData;
@@ -1012,7 +1038,7 @@ void CompileProjectCommand() {
 
     if (hFind == INVALID_HANDLE_VALUE) {
         OutputDebugString(L"Failed to list files with error: " + GetLastError());
-        return;
+        return NULL;
     }
 
     std::vector<std::wstring> fileNames;
@@ -1057,32 +1083,24 @@ void CompileProjectCommand() {
     }
 
     WaitForMultipleObjects(threadHandles.size(), threadHandles.data(), TRUE, INFINITE);
-    isProcessCreated = false;
     for (const auto& hThread : threadHandles) {
         CloseHandle(hThread);
     }
-    
-    if (сompileThread != NULL)
-    {
-        StopProjectCommand();
-    }
 
-    сompileThread = CreateThread(NULL, 0, CompileProject, NULL, 0, NULL);
-    if (сompileThread == NULL) {
-        OutputDebugString(L"Failed to create thread for compilation. Error code: " + GetLastError());
-        return;
-    }
+        сompileThread = CreateThread(NULL, 0, CompileProject, NULL, 0, NULL);
+        if (сompileThread == NULL) {
+            OutputDebugString(L"Failed to create thread for compilation. Error code: " + GetLastError());
+            return NULL;
+        }
 
+        graphicThread = CreateThread(NULL, 0, UpdateAndDraw, (LPVOID)resourcesGraphicWidget, 0, NULL);
+        if (graphicThread == NULL) {
+            OutputDebugString(L"Failed to create thread for compilation. Error code: " + GetLastError());
+            return NULL;
+        }
+        SetPriorityClass(сompileThread, THREAD_PRIORITY_TIME_CRITICAL);
 
-    graphicThread = CreateThread(NULL, 0, UpdateAndDraw, (LPVOID)resourcesGraphicWidget, 0, NULL);
-    if (graphicThread == NULL) {
-        OutputDebugString(L"Failed to create thread for compilation. Error code: " + GetLastError());
-        return;
-    }
-
-    SetPriorityClass(сompileThread, THREAD_PRIORITY_TIME_CRITICAL);
-    
-    ShowWindow(stopButton, SW_SHOW);
+        ShowWindow(stopButton, SW_SHOW);
 }
 
 void ReadLogFile() {
@@ -1329,4 +1347,252 @@ LRESULT CALLBACK BuildSettingsProc(HWND hWnd, UINT message, WPARAM wParam, LPARA
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
+}
+
+void OpenChatCommand(HWND hWnd)
+{
+    if (WSAStartup(MAKEWORD(2, 1), &wsaData) != 0) {}
+
+    int sizeOfAdders = sizeof(serverAddr);
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(1111);
+    inet_pton(AF_INET, "127.0.0.1", &serverAddr.sin_addr); // IP сервера
+
+    if (clientSocket == 0)
+    {
+        clientSocket = socket(AF_INET, SOCK_STREAM, 0);
+        if (clientSocket == INVALID_SOCKET) {
+            OutputDebugString(L"Failed to create socket.");
+        }
+
+        if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
+            OutputDebugString(L"Connection failed.");
+            closesocket(clientSocket);
+            WSACleanup();
+        }
+    }
+
+
+    hwndChatWindow = CreateWindow(L"ChatWindowClass", L"Build Settings Window", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 600, 600, nullptr, nullptr, nullptr, nullptr);
+    hChatsListBox = CreateWindowEx(0, WC_LISTVIEW, NULL,
+        WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_EDITLABELS,
+        0, 0, 600, 600, hwndChatWindow, (HMENU)IDC_LISTVIEW, NULL, NULL); LV_ITEM lvItem;
+
+    LVCOLUMN lvc;
+    lvc.mask = LVCF_WIDTH | LVCF_TEXT;
+    lvc.cx = 600; // Ширина столбца
+    lvc.pszText = const_cast<LPWSTR>(L"ID");
+    ListView_InsertColumn(hChatsListBox, 0, &lvc);
+
+
+    chatThread = CreateThread(NULL, NULL, (LPTHREAD_START_ROUTINE)(ProcessChatThread), NULL, NULL, NULL);
+    ShowWindow(hwndChatWindow, SW_SHOWNORMAL);
+}
+
+LRESULT CALLBACK ChatProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    {
+    case WM_COMMAND:
+        switch (LOWORD(wParam))
+        {
+        
+        case WM_CLOSE:
+            if (hWnd == hwndBuildSettings) {
+                Package package = { Operation::CloseHandle, 0, 0 };
+                send(clientSocket, (char*)&package, sizeof(Package), NULL);
+                closesocket(clientSocket);
+                DestroyWindow(hWnd);
+            }
+            break;
+        }
+        break;
+
+    case WM_DESTROY:
+        if (hWnd == hwndBuildSettings) {
+            hwndBuildSettings = nullptr;
+        }
+        break;
+    case WM_NOTIFY:
+    {   
+        NMHDR* nmhdr = (NMHDR*)lParam;
+        if (nmhdr->code == NM_DBLCLK) {
+            NMLISTVIEW* pNmlv = (NMLISTVIEW*)nmhdr;
+            int selectedItemIndex = pNmlv->iItem;
+
+            // Создайте буфер для хранения текста
+            WCHAR buffer[MAX_PATH]; // Максимальная длина текста
+
+            // Установите индекс строки и столбца (например, 0 - первый столбец)
+            LVITEM lvItem;
+            lvItem.iItem = selectedItemIndex;
+            lvItem.iSubItem = 0;
+
+            // Укажите буфер для хранения текста
+            lvItem.pszText = buffer;
+            lvItem.cchTextMax = MAX_PATH;
+
+            // Получите текст из выбранной строки и столбца
+            SendMessage(pNmlv->hdr.hwndFrom, LVM_GETITEMTEXT, (WPARAM)selectedItemIndex, (LPARAM)&lvItem);
+
+            int id = std::stoi(buffer);
+            if (id != -1) {
+                OPENFILENAME ofn;
+                wchar_t szFileName[1024] = L"";
+
+                ZeroMemory(&ofn, sizeof(ofn));
+                ofn.lStructSize = sizeof(ofn);
+                ofn.hwndOwner = NULL;
+                ofn.lpstrFilter = L"Text Files\0*.cpp;*.h\0";
+                ofn.lpstrFile = szFileName;
+                ofn.nMaxFile = MAX_PATH;
+                ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+                if (GetOpenFileName(&ofn) == TRUE)
+                {
+
+                    HANDLE hFile = CreateFileW(szFileName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+                    DWORD fileSize = GetFileSize(hFile, NULL);
+                    if (hFile != INVALID_HANDLE_VALUE) {
+                        if (fileSize == INVALID_FILE_SIZE && GetLastError() != NO_ERROR) {
+                            CloseHandle(hFile);
+                            return false;
+                        }
+                        content.resize(fileSize + 1);
+                        DWORD bytesRead;
+                        if (ReadFile(hFile, content.data(), fileSize, &bytesRead, NULL)) {
+                            content[bytesRead] = '\0';
+                        }
+                        else {
+                            return false;
+                        }
+                        CloseHandle(hFile);
+                    }
+                    else {
+                        return false;
+                    }
+
+                    std::wstring name = szFileName;
+
+                    name = name.substr(name.find_last_of('\\') + 1);
+                    LPWSTR fileName = const_cast<LPWSTR>(name.data());
+                    name = fileName;
+                    int size = fileSize;
+                    Package package{ Operation::SendFile, name.size(), id};
+                    send(clientSocket, (char*)&package, sizeof(Package), NULL);
+                    send(clientSocket, (char*)name.data(), name.size() * sizeof(wchar_t), NULL);
+                    send(clientSocket, (char*)&size, sizeof(int), NULL);
+                    send(clientSocket, content.data(), size * sizeof(char), NULL);
+                }
+
+            }
+        }
+        
+        break;
+    }
+    default:
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+void ProcessChatThread()
+{
+    int operation;
+    int size;
+    while (true)
+    {
+        Package package;
+        int bytes = recv(clientSocket, (char*)&package, sizeof(Package), NULL);
+        switch (package.operation)
+        {
+        case Operation::SendFile:
+        {
+            std::wstring fileName;
+            fileName.resize(package.data * sizeof(wchar_t));
+            recv(clientSocket, (char*)fileName.data(), package.data * sizeof(wchar_t), NULL);
+            std::wstring msg = L"User send you file :" + fileName;
+            int result = MessageBox(NULL, msg.c_str(), L"File send", MB_OKCANCEL | MB_ICONQUESTION);
+
+            if (result == IDOK) {
+                BROWSEINFO bi = { 0 };
+                bi.hwndOwner = hwndChatWindow;
+                bi.lpszTitle = L"Choose folder:";
+                bi.ulFlags = BIF_NEWDIALOGSTYLE | BIF_RETURNONLYFSDIRS;
+                LPITEMIDLIST pidl = SHBrowseForFolder(&bi);
+
+                if (pidl != NULL)
+                {
+                    wchar_t folderPath[MAX_PATH];
+                    SHGetPathFromIDList(pidl, folderPath);
+                    int size;
+                    std::string data;
+                    recv(clientSocket, (char*)&size, sizeof(int), NULL);
+                    data.resize(size);
+                    recv(clientSocket, (char*)data.data(), size * sizeof(char), NULL);
+                    std::wstring path = folderPath;
+                    path += L"\\" + fileName;
+                    std::vector<char> cont(data.begin(), data.end());
+                    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+                    if (hFile == INVALID_HANDLE_VALUE)
+                    {
+                        OutputDebugString(L"Unable to open file");
+                    }
+                    LPDWORD byteReaded = 0;
+                    if (!WriteFile(hFile, cont.data(), size, byteReaded, NULL))
+                    {
+                        OutputDebugString(L"Unable to async write");
+                        CloseHandle(hFile);
+                        break;
+                    }
+                    CloseHandle(hFile);
+                }
+            }
+        }
+        break;
+        case Operation::UpdateReceviers:
+        {
+            if (package.data > 0)
+            {
+                std::vector<int> receivedData;
+                int currentId;
+                recv(clientSocket, (char*)&currentId, sizeof(int), 0);
+                std::vector<char> buffer(package.data * sizeof(int));
+                int bytesRead = recv(clientSocket, buffer.data(), buffer.size(), 0);
+
+                if (bytesRead > 0) {
+                    receivedData.resize(bytesRead / sizeof(int));
+                    memcpy(receivedData.data(), buffer.data(), bytesRead);
+                }
+                else {
+                    break;
+                }
+
+
+                if (hChatsListBox != NULL) {
+                    SendMessage(hChatsListBox, LB_RESETCONTENT, 0, 0);
+                }
+
+                for (size_t i = 0; i < receivedData.size(); i++)
+                {
+                    if (hChatsListBox != NULL && currentId != i) {
+                        LVITEM lvi;
+                        lvi.mask = LVIF_TEXT;
+
+                        lvi.iItem = i;
+                        lvi.iSubItem = 0;
+                        std::wstring text = std::to_wstring(receivedData[i]);
+                        lvi.pszText = const_cast<LPWSTR>(text.c_str());
+                        ListView_InsertItem(hChatsListBox, &lvi);
+                    }
+                }
+            }
+        }
+        break;
+        default:
+            break;
+        }
+    }
 }

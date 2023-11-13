@@ -18,6 +18,7 @@
 #define IDC_RICHEDIT			111
 #define IDC_TREEVIEW_EDIT		124
 #define IDC_TREEVIEW			125
+#define IDC_LISTVIEW			126
 #endif
 // Кастомные 
 
@@ -37,7 +38,7 @@
 #define CHANGE_BUILD_SETTINGS_COMMAND		23
 #define CHANGE_QMAKE_PATH_COMMAND			24
 #define CHANGE_MINGW_MAKE_PATH_COMMAND		25
-
+#define OPEN_CHAT							26
 // Следующие стандартные значения для новых объектов
 //
 #ifdef APSTUDIO_INVOKED
